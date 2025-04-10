@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>查询页面</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>查询页面</h1>
+        
+        <div class="query-form">
+            <div class="form-group">
+                <label for="group-select">选择群组：</label>
+                <select id="group-select" class="form-control">
+                    <option value="">请选择群组</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>群组成员：</label>
+                <textarea id="group-members" class="form-control" rows="5" readonly></textarea>
+            </div>
+
+            <div class="form-group">
+                <label for="start-date">开始日期：</label>
+                <input type="date" id="start-date" class="form-control">
+            </div>
+
+            <div class="form-group">
+                <label for="end-date">结束日期：</label>
+                <input type="date" id="end-date" class="form-control">
+            </div>
+
+            <button id="query-btn" class="button">查询</button>
+        </div>
+
+        <div class="results">
+            <h2>查询结果</h2>
+            <div id="result-info" style="margin-bottom: 10px;"></div>
+            <textarea id="query-results" class="form-control" rows="15" readonly></textarea>
+        </div>
+
+        <a href="/" class="button">返回主页</a>
+    </div>
+
+    <script>
+        $(document).ready(function() {
+            // 加载群组列表
+            $.get('/api/groups', function(groups) {
+                groups.forEach(function(group) {
+                    $('#group-select').append(
+                        $('<option>', {
+                            value: group.group_id,
+                            text: group.name
+                        })
+                    );
+                });
+            });
+
+            // 群组选择变化时加载成员
+            $('#group-select').change(function() {
+                const groupId = $(this).val();
+                if (groupId) {
+                    $.get(`/api/group_users/${groupId}`, function(users) {
+                        const memberNames = users.map(user => user.name).join('\n');
+                        $('#group-members').val(memberNames);
+                    });
+                } else {
+                    $('#group-members').val('');
+                }
+            });
+
+            // 查询按钮点击事件
+            $('#query-btn').click(function() {
+                const groupId = $('#group-select').val();
+                const startDate = $('#start-date').val();
+                const endDate = $('#end-date').val();
+
+                if (!groupId || !startDate || !endDate) {
+                    alert('请填写完整信息');
+                    return;
+                }
+
+                $('#query-btn').prop('disabled', true).text('查询中...');
+                $('#query-results').val('正在查询，请稍候...');
+
+                $.ajax({
+                    url: '/api/query_time',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({
+                        group_id: groupId,
+                        start_date: startDate,
+                        end_date: endDate
+                    }),
+                    success: function(results) {
+                        if (results.error) {
+                            $('#query-results').val('查询出错：' + results.error);
+                            return;
+                        }
+
+                        if (results.length === 0) {
+                            $('#query-results').val('未找到相关时间安排');
+                            return;
+                        }
+
+                        let output = '';
+                        
+                        // 显示最佳时间段
+                        const bestTime = results[0];
+                        $('#result-info').html(
+                            `<strong>最佳时间段：</strong> ${bestTime.date} ${bestTime.hour}:00 ` +
+                            `(${bestTime.free_count}/${bestTime.total_count} 人空闲)`
+                        );
+
+                        // 显示所有时间段
+                        results.forEach(function(result, index) {
+                            output += `${index + 1}. ${result.date} ${result.hour}:00\n`;
+                            output += `   空闲人数: ${result.free_count}/${result.total_count}\n`;
+                            if (result.busy_users.length > 0) {
+                                output += `   不可参会: ${result.busy_users.join(', ')}\n`;
+                            }
+                            output += '\n';
+                        });
+                        
+                        $('#query-results').val(output.trim());
+                    },
+                    error: function(xhr) {
+                        $('#query-results').val('查询失败，请稍后重试\n' + 
+                            (xhr.responseJSON ? xhr.responseJSON.error : '未知错误'));
+                        $('#result-info').html('');
+                    },
+                    complete: function() {
+                        $('#query-btn').prop('disabled', false).text('查询');
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html> 
